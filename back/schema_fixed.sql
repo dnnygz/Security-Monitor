@@ -1,0 +1,119 @@
+CREATE TABLE Riesgo (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE Tienda (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL,
+  ubicacion VARCHAR(255) NOT NULL
+);
+
+CREATE TABLE EstadoSensor (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(50) NOT NULL
+);
+
+CREATE TABLE Rol (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(50) NOT NULL,
+  descripcion VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE Zona (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(50) NOT NULL,
+  descripcion VARCHAR(255) NOT NULL,
+  id_tienda INT NOT NULL,
+  FOREIGN KEY (id_tienda) REFERENCES Tienda(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Camara (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_zona INT NOT NULL,
+  modelo VARCHAR(50) NOT NULL,
+  FOREIGN KEY (id_zona) REFERENCES Zona(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Sensor (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_zona INT NOT NULL,
+  id_estado INT NOT NULL,
+  tipo VARCHAR(50) NOT NULL,
+  modelo VARCHAR(50) NOT NULL,
+  FOREIGN KEY (id_zona) REFERENCES Zona(id) ON DELETE CASCADE,
+  FOREIGN KEY (id_estado) REFERENCES EstadoSensor(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Usuario (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  nombre VARCHAR(100) NOT NULL,
+  correo VARCHAR(100) UNIQUE NOT NULL,
+  contrasena VARCHAR(255) NOT NULL,
+  id_rol INT NOT NULL,
+  id_tienda INT NULL,
+  fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (id_rol) REFERENCES Rol(id),
+  FOREIGN KEY (id_tienda) REFERENCES Tienda(id) ON DELETE SET NULL
+);
+
+CREATE TABLE EventoSensor (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_sensor INT NOT NULL,
+  id_zona INT NOT NULL,
+  tipo_evento VARCHAR(50) NOT NULL,
+  fecha DATETIME NOT NULL,
+  duracion_segundos INT NOT NULL,
+  FOREIGN KEY (id_zona) REFERENCES Zona(id) ON DELETE CASCADE,
+  FOREIGN KEY (id_sensor) REFERENCES Sensor(id) ON DELETE CASCADE
+);
+
+CREATE TABLE EvaluacionRiesgo (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_evento INT NOT NULL,
+  score INT NOT NULL,
+  id_riesgo INT NOT NULL,
+  fecha DATETIME,
+  activa_camara BOOLEAN NOT NULL,
+  genera_alerta BOOLEAN NOT NULL,
+  FOREIGN KEY (id_evento) REFERENCES EventoSensor(id) ON DELETE CASCADE,
+  FOREIGN KEY (id_riesgo) REFERENCES Riesgo(id) ON DELETE CASCADE
+);
+
+CREATE TABLE Reporte (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_tienda INT NOT NULL,
+  id_zona INT NOT NULL,
+  id_riesgo INT NOT NULL,
+  fecha DATETIME NOT NULL,
+  duracion_segundos INT NULL,
+  id_evaluacion INT NOT NULL,
+  FOREIGN KEY (id_tienda) REFERENCES Tienda(id),
+  FOREIGN KEY (id_riesgo) REFERENCES Riesgo(id),
+  FOREIGN KEY (id_zona) REFERENCES Zona(id),
+  FOREIGN KEY (id_evaluacion) REFERENCES EvaluacionRiesgo(id)
+);
+
+CREATE TABLE Grabacion (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_camara INT NOT NULL,
+  ruta_enlace VARCHAR(255) NOT NULL,
+  id_reporte INT NOT NULL,
+  fecha DATETIME NOT NULL,
+  tipo VARCHAR(20) NOT NULL,
+  estado_revision VARCHAR(20) NOT NULL,
+  es_sospechoso BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (id_reporte) REFERENCES Reporte(id) ON DELETE CASCADE,
+  FOREIGN KEY (id_camara) REFERENCES Camara(id) ON DELETE CASCADE
+);
+
+CREATE TABLE GrabacionAnalisis (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  id_grabacion INT NOT NULL,
+  descripcion VARCHAR(200) NOT NULL,
+  genero VARCHAR(20) NOT NULL DEFAULT 'DESCONOCIDO',
+  edad INT NOT NULL,
+  comportamiento VARCHAR(20) NOT NULL DEFAULT 'INDETERMINADO',
+  nivel_confianza VARCHAR(20) NOT NULL DEFAULT 'BAJO',
+  FOREIGN KEY (id_grabacion) REFERENCES Grabacion(id) ON DELETE CASCADE
+);
