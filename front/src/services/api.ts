@@ -9,6 +9,23 @@ export const api = axios.create({
   },
 });
 
+//  INTERCEPTOR: Inyecta el JWT en cada petición saliente automáticamente
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    
+    if (token) {
+      // Agrega la cabecera exactamente como la espera tu middleware 'verificarToken'
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 export function getApiError(error: unknown): string {
   if (error instanceof AxiosError) {
     return error.response?.data?.message || error.response?.data?.error || error.message;
