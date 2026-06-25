@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const mysql = require('mysql2/promise');
 
@@ -73,8 +74,18 @@ app.post('/api/usuarios/login', async (req, res) => {
             return res.status(401).json({ success: false, message: "Credenciales inválidas" });
         }
 
+	const payload = {
+            id_usuario: user.id,
+            nombre: user.nombre,
+            id_rol: user.id_rol,
+            id_tienda: user.id_tienda
+        };
+
+	const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '4h' });
+
         res.json({
             success: true,
+	    token: token,
             user: {
                 id: user.id,
                 nombre: user.nombre,
@@ -87,10 +98,35 @@ app.post('/api/usuarios/login', async (req, res) => {
     }
 });
 
+// ==========================================
+// MIDDLEWARE: VERIFICAR JWT Y ROLES
+// ==========================================
+const verificarToken = (req, res, next) => {
+    // Los tokens se envían comúnmente en la cabecera 'Authorization' como 'Bearer TOKEN_AQUÍ'
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1]; // Extrae solo el string del token
+
+    if (!token) {
+        return res.status(401).json({ success: false, message: 'Acceso denegado. Token no proporcionado.' });
+    }
+
+    try {
+        // Verificar el token con la clave secreta
+        const datosVerificados = jwt.verify(token, process.env.JWT_SECRET);
+
+        // Inyectamos los datos del usuario dentro del objeto 'req' para que cualquier endpoint los use
+        req.usuarioAutenticado = datosVerificados;
+
+        next(); // Continúa hacia el endpoint real
+    } catch (error) {
+        return res.status(403).json({ success: false, message: 'Token inválido o expirado.' });
+    }
+};
+
 // =========================
 // EVENT CORE (CEREBRO)
 // =========================
-app.post('/api/eventos-sensor', async (req, res) => {
+app.post('/api/eventos-sensor', verificarToken, async (req, res) => {
     const { id_sensor, id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
 
     if (!id_sensor || !id_zona || !tipo_evento || !fecha) {
@@ -143,7 +179,7 @@ app.post('/api/eventos-sensor', async (req, res) => {
     }
 });
 
-app.get('/api/eventos-sensor', async (req, res) => {
+app.get('/api/eventos-sensor', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -172,7 +208,7 @@ app.get('/api/eventos-sensor', async (req, res) => {
 // =========================
 // GRABACIONES (EVIDENCIA)
 // =========================
-app.get('/api/grabaciones', async (req, res) => {
+app.get('/api/grabaciones', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT g.*, c.modelo AS camara, z.nombre AS zona
@@ -189,7 +225,7 @@ app.get('/api/grabaciones', async (req, res) => {
     }
 });
 
-app.patch('/api/grabaciones/:id', async (req, res) => {
+app.patch('/api/grabaciones/:id', verificarToken, async (req, res) => {
     const { id } = req.params;
     const { estado_revision } = req.body;
     const estadosPermitidos = ['PENDIENTE', 'REVISADO', 'DESCARTADO'];
@@ -221,7 +257,7 @@ app.patch('/api/grabaciones/:id', async (req, res) => {
 // =========================
 // ANALISIS (IA SIMULADA)
 // =========================
-app.post('/api/grabaciones-analisis', async (req, res) => {
+app.post('/api/grabaciones-analisis', verificarToken, async (req, res) => {
     const { id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
 
     try {
@@ -239,7 +275,7 @@ app.post('/api/grabaciones-analisis', async (req, res) => {
     }
 });
 
-app.get('/api/grabaciones-analisis', async (req, res) => {
+app.get('/api/grabaciones-analisis', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -266,7 +302,7 @@ app.get('/api/grabaciones-analisis', async (req, res) => {
 // =========================
 // DASHBOARD (BI)
 // =========================
-app.get('/api/dashboard', async (req, res) => {
+app.get('/api/dashboard', verificarToken, async (req, res) => {
     try {
         const [[kpis]] = await pool.query(`
             SELECT 
@@ -282,7 +318,7 @@ app.get('/api/dashboard', async (req, res) => {
     }
 });
 
-app.get('/api/dashboard/metricas', async (req, res) => {
+app.get('/api/dashboard/metricas', verificarToken, async (req, res) => {
     const { id_tienda } = req.query;
 
     try {
@@ -363,7 +399,7 @@ app.get('/api/dashboard/metricas', async (req, res) => {
     }
 });
 
-app.get('/api/reportes', async (req, res) => {
+app.get('/api/reportes', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT
@@ -412,7 +448,7 @@ app.get('/api/reportes', async (req, res) => {
 // =========================
 // CATALOGOS
 // =========================
-app.get('/api/usuarios', async (req, res) => {
+app.get('/api/usuarios', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT u.id, u.nombre, u.correo, r.nombre AS rol, t.nombre AS tienda, u.fecha_registro
@@ -429,7 +465,7 @@ app.get('/api/usuarios', async (req, res) => {
     }
 });
 
-app.get('/api/tiendas', async (req, res) => {
+app.get('/api/tiendas', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query("SELECT * FROM Tienda ORDER BY nombre ASC");
         res.json({ success: true, data: rows });
@@ -439,7 +475,7 @@ app.get('/api/tiendas', async (req, res) => {
     }
 });
 
-app.get('/api/riesgos', async (req, res) => {
+app.get('/api/riesgos', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query("SELECT * FROM Riesgo ORDER BY id ASC");
         res.json({ success: true, data: rows });
@@ -449,7 +485,7 @@ app.get('/api/riesgos', async (req, res) => {
     }
 });
 
-app.get('/api/zonas', async (req, res) => {
+app.get('/api/zonas', verificarToken, async (req, res) => {
     const { id_tienda } = req.query;
 
     try {
@@ -475,7 +511,7 @@ app.get('/api/zonas', async (req, res) => {
     }
 });
 
-app.get('/api/sensores', async (req, res) => {
+app.get('/api/sensores', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT s.*, z.nombre AS zona, es.nombre AS estado
@@ -492,7 +528,7 @@ app.get('/api/sensores', async (req, res) => {
     }
 });
 
-app.get('/api/camaras', async (req, res) => {
+app.get('/api/camaras', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT c.*, z.nombre AS zona

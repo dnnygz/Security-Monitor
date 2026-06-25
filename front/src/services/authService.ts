@@ -15,8 +15,10 @@ export async function login(correo: string, contrasena: string) {
     throw new Error(data.message || 'Credenciales inválidas');
   }
 
+  localStorage.setItem('token', data.token);
+
   return {
     user: data.user,
-    token: data.token || `session-${data.user.id}-${Date.now()}`,
+    token: data.token,
   };
 }
