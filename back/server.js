@@ -50,7 +50,7 @@ function evaluarRiesgo(evento) {
 // =========================
 // AUTH BASIC
 // =========================
-app.post('/api/usuarios/login', async (req, res) => {
+app.post('/api/auth/tokens', async (req, res) => {
     const { correo, contrasena } = req.body;
 
     if (!correo || !contrasena) {
@@ -102,31 +102,90 @@ app.post('/api/usuarios/login', async (req, res) => {
 // MIDDLEWARE: VERIFICAR JWT Y ROLES
 // ==========================================
 const verificarToken = (req, res, next) => {
-    // Los tokens se envían comúnmente en la cabecera 'Authorization' como 'Bearer TOKEN_AQUÍ'
+
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1]; // Extrae solo el string del token
+    const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
         return res.status(401).json({ success: false, message: 'Acceso denegado. Token no proporcionado.' });
     }
 
     try {
-        // Verificar el token con la clave secreta
+
         const datosVerificados = jwt.verify(token, process.env.JWT_SECRET);
 
-        // Inyectamos los datos del usuario dentro del objeto 'req' para que cualquier endpoint los use
         req.usuarioAutenticado = datosVerificados;
 
-        next(); // Continúa hacia el endpoint real
+        next();
     } catch (error) {
         return res.status(403).json({ success: false, message: 'Token inválido o expirado.' });
     }
 };
 
+app.post('/api/usuarios/registrar-empleado', verificarToken, async (req, res) => {
+
+    // requisitos del token del usuario (debe tener rol admin)
+    const { id_rol: rolAdmin, id_tienda: tiendaAdmin } = req.usuarioAutenticado;
+
+    if (parseInt(rolAdmin) !== 1) {
+        return res.status(403).json({ 
+            success: false, 
+            message: 'Acceso denegado. Solo los administradores pueden registrar usuarios.' 
+        });
+    }
+    // requisitos para crear la cuenta (nombre, correo y contraseña)
+    const { nombre, correo, contrasena } = req.body;
+
+    if (!nombre || !correo || !contrasena) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Todos los campos (nombre, correo, contrasena) son obligatorios.' 
+        });
+    }
+
+    try {
+        const [usuariosExistentes] = await pool.query('SELECT id FROM Usuario WHERE correo = ?', [correo]);
+        if (usuariosExistentes.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'El correo electrónico ya se encuentra registrado.' 
+            });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const contrasenaHasheada = await bcrypt.hash(contrasena, salt);
+
+        const ID_ROL_USUARIO = 2; // id del rol de usuario corriente
+
+        const queryInsert = `
+            INSERT INTO Usuario (nombre, correo, contrasena, id_rol, id_tienda) 
+            VALUES (?, ?, ?, ?, ?)
+        `;
+        
+        const [resultado] = await pool.query(queryInsert, [
+            nombre,
+            correo,
+            contrasenaHasheada,
+            ID_ROL_USUARIO,
+            tiendaAdmin // token del admin
+        ]);
+
+        res.status(201).json({
+            success: true,
+            message: 'Usuario registrado exitosamente dentro de tu misma tienda.',
+            id_usuario_creado: resultado.insertId
+        });
+
+    } catch (error) {
+        console.error('Error en el registro de empleado:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // =========================
 // EVENT CORE (CEREBRO)
 // =========================
-app.post('/api/eventos-sensor', verificarToken, async (req, res) => {
+app.post('/api/sensores/:id/eventos', verificarToken, async (req, res) => {
     const { id_sensor, id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
 
     if (!id_sensor || !id_zona || !tipo_evento || !fecha) {
@@ -179,7 +238,7 @@ app.post('/api/eventos-sensor', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/eventos-sensor', verificarToken, async (req, res) => {
+app.get('/api/sensores/eventos', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -257,7 +316,7 @@ app.patch('/api/grabaciones/:id', verificarToken, async (req, res) => {
 // =========================
 // ANALISIS (IA SIMULADA)
 // =========================
-app.post('/api/grabaciones-analisis', verificarToken, async (req, res) => {
+app.post('/api/grabaciones/:id/analisis', verificarToken, async (req, res) => {
     const { id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
 
     try {
@@ -275,7 +334,7 @@ app.post('/api/grabaciones-analisis', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/grabaciones-analisis', verificarToken, async (req, res) => {
+app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT 

@@ -9,7 +9,7 @@ type LoginResponse = {
 };
 
 export async function login(correo: string, contrasena: string) {
-  const { data } = await api.post<LoginResponse>('/api/usuarios/login', { correo, contrasena });
+  const { data } = await api.post<LoginResponse>('/api/auth/tokens', { correo, contrasena });
 
   if (!data.success || !data.user) {
     throw new Error(data.message || 'Credenciales inválidas');
