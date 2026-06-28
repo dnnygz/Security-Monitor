@@ -59,7 +59,7 @@ app.post('/api/auth/tokens', async (req, res) => {
 
     try {
         const [rows] = await pool.query(
-            "SELECT id, nombre, correo, contrasena, id_rol FROM Usuario WHERE correo = ?",
+            "SELECT id, nombre, correo, contrasena, id_rol, id_tienda FROM Usuario WHERE correo = ?",
             [correo]
         );
 
@@ -99,7 +99,7 @@ app.post('/api/auth/tokens', async (req, res) => {
 });
 
 // ==========================================
-// MIDDLEWARE: VERIFICAR JWT Y ROLES
+// MIDDLEWARE: VERIFICAR JWT
 // ==========================================
 const verificarToken = (req, res, next) => {
 
@@ -122,7 +122,24 @@ const verificarToken = (req, res, next) => {
     }
 };
 
-app.post('/api/usuarios/registrar-empleado', verificarToken, async (req, res) => {
+// ==========================================
+// MIDDLEWARE: CONTROL DE ROLES (RBAC)
+// ==========================================
+const requerirRol = (idRolRequerido) => {
+    return (req, res, next) => {
+        const { id_rol } = req.usuarioAutenticado;
+
+        if (parseInt(id_rol) !== idRolRequerido) {
+            return res.status(403).json({
+                success: false,
+                message: 'Acceso denegado. No tienes los privilegios requeridos para esta operación.' 
+            });
+        }
+        next(); // Si tiene el rol, continúa al endpoint
+    };
+};
+
+app.post('/api/usuarios/empleados', verificarToken, requerirRol(1), async (req, res) => {
 
     // requisitos del token del usuario (debe tener rol admin)
     const { id_rol: rolAdmin, id_tienda: tiendaAdmin } = req.usuarioAutenticado;
@@ -185,10 +202,11 @@ app.post('/api/usuarios/registrar-empleado', verificarToken, async (req, res) =>
 // =========================
 // EVENT CORE (CEREBRO)
 // =========================
-app.post('/api/sensores/:id/eventos', verificarToken, async (req, res) => {
-    const { id_sensor, id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
+app.post('/api/sensores/:id/eventos', verificarToken, requerirRol(1), async (req, res) => {
+    const { id } = req.params;
+    const {id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
 
-    if (!id_sensor || !id_zona || !tipo_evento || !fecha) {
+    if (!id || !id_zona || !tipo_evento || !fecha) {
         return res.status(400).json({ success: false, message: "Faltan datos" });
     }
 
@@ -197,7 +215,7 @@ app.post('/api/sensores/:id/eventos', verificarToken, async (req, res) => {
         const [ev] = await pool.query(
             `INSERT INTO EventoSensor (id_sensor, id_zona, tipo_evento, fecha, duracion_segundos)
              VALUES (?, ?, ?, ?, ?)`,
-            [id_sensor, id_zona, tipo_evento, fecha, duracion_segundos || 0]
+            [id, id_zona, tipo_evento, fecha, duracion_segundos || 0]
         );
 
         const eventoId = ev.insertId;
@@ -223,7 +241,7 @@ app.post('/api/sensores/:id/eventos', verificarToken, async (req, res) => {
 
         const evaluacionId = evalRes.insertId;
 
-        res.json({
+        res.status(201).json({
             success: true,
             eventoId,
             evaluacionId,
@@ -238,7 +256,8 @@ app.post('/api/sensores/:id/eventos', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/sensores/eventos', verificarToken, async (req, res) => {
+app.get('/api/eventos-sensores', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -254,8 +273,9 @@ app.get('/api/sensores/eventos', verificarToken, async (req, res) => {
             FROM EventoSensor ev
             JOIN Sensor s ON ev.id_sensor = s.id
             JOIN Zona z ON ev.id_zona = z.id
+	    WHERE z.id_tienda = ?
             ORDER BY ev.fecha DESC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -268,14 +288,16 @@ app.get('/api/sensores/eventos', verificarToken, async (req, res) => {
 // GRABACIONES (EVIDENCIA)
 // =========================
 app.get('/api/grabaciones', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT g.*, c.modelo AS camara, z.nombre AS zona
             FROM Grabacion g
             JOIN Camara c ON g.id_camara = c.id
             JOIN Zona z ON c.id_zona = z.id
+	    WHERE z.id_tienda = ?
             ORDER BY g.fecha DESC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -316,18 +338,19 @@ app.patch('/api/grabaciones/:id', verificarToken, async (req, res) => {
 // =========================
 // ANALISIS (IA SIMULADA)
 // =========================
-app.post('/api/grabaciones/:id/analisis', verificarToken, async (req, res) => {
-    const { id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
+app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRol(1), async (req, res) => {
+    const { id } = req.params;
+    const { descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
 
     try {
         const [r] = await pool.query(
-            `INSERT INTO GrabacionAnalisis 
+            `INSERT INTO GrabacionAnalisis
             (id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza)
             VALUES (?, ?, ?, ?, ?, ?)`,
-            [id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza]
+            [id, descripcion, genero, edad, comportamiento, nivel_confianza]
         );
 
-        res.json({ success: true, id: r.insertId });
+        res.status(201).json({ success: true, id: r.insertId });
 
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
@@ -335,6 +358,7 @@ app.post('/api/grabaciones/:id/analisis', verificarToken, async (req, res) => {
 });
 
 app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT 
@@ -348,8 +372,9 @@ app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
             JOIN Grabacion g ON ga.id_grabacion = g.id
             JOIN Camara c ON g.id_camara = c.id
             JOIN Zona z ON c.id_zona = z.id
+	    WHERE z.id_tienda = ?
             ORDER BY ga.id DESC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -361,24 +386,26 @@ app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
 // =========================
 // DASHBOARD (BI)
 // =========================
-app.get('/api/dashboard', verificarToken, async (req, res) => {
+app.get('/api/tiendas/kpis', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
+
     try {
         const [[kpis]] = await pool.query(`
             SELECT 
-                (SELECT COUNT(*) FROM EventoSensor) AS eventos,
-                (SELECT COUNT(*) FROM EvaluacionRiesgo WHERE genera_alerta = 1) AS alertas,
-                (SELECT COUNT(*) FROM Grabacion) AS grabaciones
-        `);
+                (SELECT COUNT(*) FROM EventoSensor WHERE id_zona IN (SELECT id FROM Zona WHERE id_tienda = ?)) AS eventos,
+                (SELECT COUNT(*) FROM EvaluacionRiesgo WHERE id_evento IN (SELECT id FROM EventoSensor WHERE id_zona IN (SELECT id FROM Zona WHERE id_tienda = ?)) AND genera_alerta = 1) AS alertas,
+                (SELECT COUNT(*) FROM Grabacion WHERE id_camara IN (SELECT id FROM Camara WHERE id_zona IN (SELECT id FROM Zona WHERE id_tienda = ?))) AS grabaciones
+        `, [id_tienda, id_tienda, id_tienda]);
 
         res.json({ success: true, kpis });
-
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
 });
 
-app.get('/api/dashboard/metricas', verificarToken, async (req, res) => {
-    const { id_tienda } = req.query;
+// /api/dashboard/metricas
+app.get('/api/reportes/estadisticas', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
 
     try {
         const reporteFiltro = id_tienda ? 'WHERE id_tienda = ?' : '';
@@ -459,6 +486,7 @@ app.get('/api/dashboard/metricas', verificarToken, async (req, res) => {
 });
 
 app.get('/api/reportes', verificarToken, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT
@@ -494,8 +522,9 @@ app.get('/api/reportes', verificarToken, async (req, res) => {
             LEFT JOIN Grabacion g ON g.id_reporte = rep.id
             LEFT JOIN Camara c ON g.id_camara = c.id
             LEFT JOIN GrabacionAnalisis ga ON ga.id_grabacion = g.id
-            ORDER BY rep.fecha DESC
-        `);
+            WHERE z.id_tienda = ?
+	    ORDER BY rep.fecha DESC
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
