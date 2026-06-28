@@ -260,7 +260,7 @@ app.get('/api/eventos-sensores', verificarToken, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
-            SELECT 
+            SELECT
                 ev.id,
                 ev.id_sensor,
                 ev.id_zona,
