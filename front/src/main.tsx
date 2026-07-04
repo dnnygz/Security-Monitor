@@ -8,6 +8,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { SensorEventsPage } from './pages/SensorEventsPage';
 import { RecordingsPage } from './pages/RecordingsPage';
+import { RecordingDetailPage } from './pages/RecordingDetailPage';
 import { AiAnalysisPage } from './pages/AiAnalysisPage';
 import { CatalogsPage } from './pages/CatalogsPage';
 import { ReportsPage } from './pages/ReportsPage';
@@ -26,6 +27,7 @@ const router = createBrowserRouter([
       { index: true, element: <DashboardPage /> },
       { path: 'eventos', element: <SensorEventsPage /> },
       { path: 'grabaciones', element: <RecordingsPage /> },
+      { path: 'grabaciones/:id', element: <RecordingDetailPage /> },
       { path: 'reportes', element: <ReportsPage /> },
       { path: 'analisis-ia', element: <AiAnalysisPage /> },
       { path: 'catalogos', element: <CatalogsPage /> },

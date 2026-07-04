@@ -5,6 +5,19 @@ type ChartDatum = {
 
 const colors = ['#2b8fe7', '#26b99a', '#18a8b8', '#df5b61', '#d49a28', '#7b8fe8'];
 
+function chartColor(label: string, index: number) {
+  const normalized = label.toUpperCase();
+
+  if (normalized.includes('ALTO') || normalized.includes('SOSPECHOSO')) return '#df5b61';
+  if (normalized.includes('MEDIO') || normalized.includes('PENDIENTE')) return '#d49a28';
+  if (normalized.includes('BAJO') || normalized.includes('FALSO') || normalized.includes('REVISADO')) return '#26b99a';
+  if (normalized.includes('ENTRADA')) return '#2b8fe7';
+  if (normalized.includes('PASILLO')) return '#18a8b8';
+  if (normalized.includes('ALMACEN')) return '#7b8fe8';
+  if (normalized.includes('CAJA')) return '#26b99a';
+  return colors[index % colors.length];
+}
+
 export function BarChart({ data, title }: { data: ChartDatum[]; title: string }) {
   const max = Math.max(...data.map((item) => item.value), 1);
 
@@ -16,7 +29,7 @@ export function BarChart({ data, title }: { data: ChartDatum[]; title: string })
           <div className="bar-row" key={item.label}>
             <span>{item.label}</span>
             <div className="bar-track">
-              <div style={{ width: `${(item.value / max) * 100}%`, background: colors[index % colors.length] }} />
+              <div style={{ width: `${(item.value / max) * 100}%`, background: chartColor(item.label, index) }} />
             </div>
             <strong>{item.value}</strong>
           </div>
@@ -35,7 +48,7 @@ export function DonutChart({ data, title }: { data: ChartDatum[]; title: string 
           const start = (cumulative / total) * 100;
           cumulative += item.value;
           const end = (cumulative / total) * 100;
-          return `${colors[index % colors.length]} ${start}% ${end}%`;
+          return `${chartColor(item.label, index)} ${start}% ${end}%`;
         })
         .join(', ')
     : '#d9edf2 0% 100%';
@@ -49,7 +62,7 @@ export function DonutChart({ data, title }: { data: ChartDatum[]; title: string 
       <div className="legend-list">
         {data.map((item, index) => (
           <span key={item.label}>
-            <i style={{ background: colors[index % colors.length] }} />
+            <i style={{ background: chartColor(item.label, index) }} />
             {item.label}: {item.value}
           </span>
         ))}

@@ -1,10 +1,10 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { Activity, Bot, Camera, FileText, Gauge, Layers3, LogOut, ShieldCheck } from 'lucide-react';
+import { Bot, Camera, FileText, Gauge, Layers3, LogOut, RadioTower, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const links = [
   { to: '/', label: 'Dashboard', icon: Gauge },
-  { to: '/eventos', label: 'Eventos', icon: Activity },
+  { to: '/eventos', label: 'Sensores', icon: RadioTower },
   { to: '/grabaciones', label: 'Grabaciones', icon: Camera },
   { to: '/reportes', label: 'Reportes', icon: FileText },
   { to: '/analisis-ia', label: 'Análisis IA', icon: Bot },
