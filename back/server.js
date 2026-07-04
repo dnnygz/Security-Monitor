@@ -273,9 +273,9 @@ app.get('/api/eventos-sensores', verificarToken, async (req, res) => {
             FROM EventoSensor ev
             JOIN Sensor s ON ev.id_sensor = s.id
             JOIN Zona z ON ev.id_zona = z.id
-	    WHERE z.id_tienda = ?
+	    WHERE (? IS NULL OR z.id_tienda = ?)
             ORDER BY ev.fecha DESC
-        `, [id_tienda]);
+        `, [id_tienda, id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -295,9 +295,9 @@ app.get('/api/grabaciones', verificarToken, async (req, res) => {
             FROM Grabacion g
             JOIN Camara c ON g.id_camara = c.id
             JOIN Zona z ON c.id_zona = z.id
-	    WHERE z.id_tienda = ?
+	    WHERE (? IS NULL OR z.id_tienda = ?)
             ORDER BY g.fecha DESC
-        `, [id_tienda]);
+        `, [id_tienda, id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -522,9 +522,9 @@ app.get('/api/reportes', verificarToken, async (req, res) => {
             LEFT JOIN Grabacion g ON g.id_reporte = rep.id
             LEFT JOIN Camara c ON g.id_camara = c.id
             LEFT JOIN GrabacionAnalisis ga ON ga.id_grabacion = g.id
-            WHERE z.id_tienda = ?
+            WHERE (? IS NULL OR z.id_tienda = ?)
 	    ORDER BY rep.fecha DESC
-        `, [id_tienda]);
+        `, [id_tienda, id_tienda]);
 
         res.json({ success: true, data: rows });
 
