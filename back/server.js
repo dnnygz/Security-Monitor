@@ -125,21 +125,185 @@ const verificarToken = (req, res, next) => {
 // ==========================================
 // MIDDLEWARE: CONTROL DE ROLES (RBAC)
 // ==========================================
-const requerirRol = (idRolRequerido) => {
+const requerirRoles =  (rolesPermitidos) => {
     return (req, res, next) => {
         const { id_rol } = req.usuarioAutenticado;
-
-        if (parseInt(id_rol) !== idRolRequerido) {
+        if (!rolesPermitidos.includes(parseInt(id_rol))) {
             return res.status(403).json({
                 success: false,
-                message: 'Acceso denegado. No tienes los privilegios requeridos para esta operación.' 
+                message: 'Acceso denegado. No tienes los privilegios requeridos.'
             });
         }
-        next(); // Si tiene el rol, continúa al endpoint
+        next();
     };
 };
 
-app.post('/api/usuarios/empleados', verificarToken, requerirRol(1), async (req, res) => {
+/**
+ * ==========================================================================
+ * ENDPOINT EXCLUSIVO PARA ADMINISTRADOR GLOBAL: CREACIÓN DE USUARIOS
+ * ==========================================================================
+ * Permite registrar cualquier tipo de usuario (Admin, Gerente, Operador, etc.)
+ * y asignarlo a cualquier tienda (o dejarlo como NULL).
+ */
+app.post('/api/admin/usuarios', verificarToken, requerirRoles([1]), async (req, res) => {
+    const { nombre, correo, contrasena, id_rol, id_tienda } = req.body;
+
+    // Validación de campos obligatorios para el registro
+    if (!nombre || !correo || !contrasena || !id_rol) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Los campos nombre, correo, contrasena e id_rol son obligatorios.' 
+        });
+    }
+
+    try {
+        // 1. Verificar si el correo electrónico ya existe en la base de datos
+        const [usuariosExistentes] = await pool.query(
+            'SELECT id FROM Usuario WHERE correo = ?', 
+            [correo]
+        );
+        
+        if (usuariosExistentes.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'El correo electrónico ya se encuentra registrado.' 
+            });
+        }
+
+        // 2. Hashear la contraseña por seguridad antes de guardarla
+        const salt = await bcrypt.genSalt(10);
+        const contrasenaHasheada = await bcrypt.hash(contrasena, salt);
+
+        // 3. Insertar el nuevo usuario en la base de datos
+        // Si id_tienda no viene en el body o es vacío, se guarda como NULL automáticamente
+        const queryInsert = `
+            INSERT INTO Usuario (nombre, correo, contrasena, id_rol, id_tienda) 
+            VALUES (?, ?, ?, ?, ?)
+        `;
+        
+        const [resultado] = await pool.query(queryInsert, [
+            nombre,
+            correo,
+            contrasenaHasheada,
+            id_rol,
+            id_tienda || null 
+        ]);
+
+        // 4. Responder con éxito y retornar el ID generado
+        res.status(201).json({
+            success: true,
+            message: 'Usuario registrado globalmente de forma exitosa.',
+            data: {
+                id_usuario_creado: resultado.insertId,
+                nombre,
+                correo,
+                id_rol,
+                id_tienda: id_tienda || null
+            }
+        });
+
+    } catch (error) {
+        console.error('Error en el registro global de usuario:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+
+/**
+ * Endpoint Exclusivo para Administrador Global
+ * Permite modificar absolutamente todos los campos de cualquier usuario
+ */
+app.put('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (req, res) => {
+    const { id } = req.params;
+    // El administrador SI puede cambiar el rol y la tienda asignada
+    const { nombre, correo, contrasena, id_rol, id_tienda } = req.body; 
+
+    if (!nombre || !correo || !id_rol) {
+        return res.status(400).json({ success: false, message: 'Campos obligatorios faltantes.' });
+    }
+
+    try {
+        // Validar correo duplicado
+        const [correoExistente] = await pool.query('SELECT id FROM Usuario WHERE correo = ? AND id != ?', [correo, id]);
+        if (correoExistente.length > 0) {
+            return res.status(400).json({ success: false, message: 'El correo ya está en uso.' });
+        }
+
+        let queryUpdate = '';
+        let queryParams = [];
+
+        if (contrasena && contrasena.trim() !== "") {
+            const salt = await bcrypt.genSalt(10);
+            const contrasenaHasheada = await bcrypt.hash(contrasena, salt);
+            
+            queryUpdate = `
+                UPDATE Usuario 
+                SET nombre = ?, correo = ?, contrasena = ?, id_rol = ?, id_tienda = ? 
+                WHERE id = ?
+            `;
+            queryParams = [nombre, correo, contrasenaHasheada, id_rol, id_tienda || null, id];
+        } else {
+            queryUpdate = `
+                UPDATE Usuario 
+                SET nombre = ?, correo = ?, id_rol = ?, id_tienda = ? 
+                WHERE id = ?
+            `;
+            queryParams = [nombre, correo, id_rol, id_tienda || null, id];
+        }
+
+        const [resultado] = await pool.query(queryUpdate, queryParams);
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+        }
+
+        res.json({ success: true, message: 'Usuario modificado globalmente con éxito.' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (req, res) => {
+    const { id } = req.params;
+    const { id_usuario: adminId } = req.usuarioAutenticado; // ID del admin que inició sesión
+
+    // Candado de Seguridad: Evitar que el administrador se elimine a sí mismo por error
+    if (parseInt(id) === parseInt(adminId)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Operación inválida. No puedes eliminar tu propia cuenta de Administrador Global.' 
+        });
+    }
+
+    try {
+        // Ejecutar la eliminación directa en la base de datos
+        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ?', [id]);
+
+        // Si no se afectó ninguna fila, significa que el ID no existía
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Usuario no encontrado.' 
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Usuario eliminado globalmente de la base de datos de manera exitosa.'
+        });
+
+    } catch (error) {
+        console.error('Error al eliminar usuario (Global):', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+app.post('/api/usuarios/empleados', verificarToken, requerirRoles([2]), async (req, res) => {
 
     // requisitos del token del usuario (debe tener rol admin)
     const { id_rol: rolAdmin, id_tienda: tiendaAdmin } = req.usuarioAutenticado;
@@ -199,10 +363,108 @@ app.post('/api/usuarios/empleados', verificarToken, requerirRol(1), async (req, 
     }
 });
 
+app.put('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async (req, res) => {
+    const { id } = req.params;
+    // 1. Eliminamos 'id_rol' de req.body para que NINGÚN usuario pueda enviarlo ni alterarlo
+    const { nombre, correo, contrasena } = req.body; 
+    const { id_tienda: tiendaAdmin } = req.usuarioAutenticado;
+
+    // El id_rol ya no es obligatorio porque ya no se va a actualizar aquí
+    if (!nombre || !correo) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'Los campos nombre y correo son obligatorios.' 
+        });
+    }
+
+    try {
+        // Verificar si el correo ya está en uso por OTRO usuario
+        const [correoExistente] = await pool.query(
+            'SELECT id FROM Usuario WHERE correo = ? AND id != ?', 
+            [correo, id]
+        );
+      
+        if (correoExistente.length > 0) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'El correo electrónico ya está asignado a otro usuario.' 
+            });
+        }
+
+        let queryUpdate = '';
+        let queryParams = [];
+
+        // Si se envió una nueva contraseña, la hasheamos y actualizamos
+        if (contrasena && contrasena.trim() !== "") {
+            const salt = await bcrypt.genSalt(10);
+            const contrasenaHasheada = await bcrypt.hash(contrasena, salt);
+            
+            // 2. Quitamos 'id_rol = ?' de la sentencia SQL
+            queryUpdate = `
+                UPDATE Usuario 
+                SET nombre = ?, correo = ?, contrasena = ?, id_tienda = ?
+                WHERE id = ?
+            `;
+            queryParams = [nombre, correo, contrasenaHasheada, tiendaAdmin || null, id];
+        } else {
+            // 3. Quitamos 'id_rol = ?' también de la sentencia sin contraseña
+            queryUpdate = `
+                UPDATE Usuario 
+                SET nombre = ?, correo = ?, id_tienda = ?
+                WHERE id = ?
+            `;
+            queryParams = [nombre, correo, tiendaAdmin || null, id];
+        }
+
+        const [resultado] = await pool.query(queryUpdate, queryParams);
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Datos personales del usuario actualizados exitosamente sin alterar su rol.'
+        });
+    } catch (error) {
+        console.error('Error al modificar usuario:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.delete('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async (req, res) => {
+    const { id } = req.params;
+    const { id_usuario: adminId } = req.usuarioAutenticado;
+
+    // Evitar que el administrador se elimine a sí mismo por error
+    if (parseInt(id) === parseInt(adminId)) {
+        return res.status(400).json({ 
+            success: false, 
+            message: 'No puedes eliminar tu propia cuenta de administrador desde este endpoint.' 
+        });
+    }
+
+    try {
+        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ?', [id]);
+
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
+        }
+
+        res.json({
+            success: true,
+            message: 'Usuario eliminado exitosamente de la base de datos.'
+        });
+
+    } catch (error) {
+        console.error('Error al eliminar usuario:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // =========================
 // EVENT CORE (CEREBRO)
 // =========================
-app.post('/api/sensores/:id/eventos', verificarToken, requerirRol(1), async (req, res) => {
+app.post('/api/sensores/:id/eventos', verificarToken, requerirRoles([5]), async (req, res) => {
     const { id } = req.params;
     const {id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
 
@@ -256,7 +518,7 @@ app.post('/api/sensores/:id/eventos', verificarToken, requerirRol(1), async (req
     }
 });
 
-app.get('/api/eventos-sensores', verificarToken, async (req, res) => {
+app.get('/api/eventos-sensores', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -287,7 +549,7 @@ app.get('/api/eventos-sensores', verificarToken, async (req, res) => {
 // =========================
 // GRABACIONES (EVIDENCIA)
 // =========================
-app.get('/api/grabaciones', verificarToken, async (req, res) => {
+app.get('/api/grabaciones', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -306,7 +568,7 @@ app.get('/api/grabaciones', verificarToken, async (req, res) => {
     }
 });
 
-app.patch('/api/grabaciones/:id', verificarToken, async (req, res) => {
+app.patch('/api/grabaciones/:id', verificarToken,requerirRoles([1,2,3]),  async (req, res) => {
     const { id } = req.params;
     const { estado_revision } = req.body;
     const estadosPermitidos = ['PENDIENTE', 'REVISADO', 'DESCARTADO'];
@@ -338,7 +600,7 @@ app.patch('/api/grabaciones/:id', verificarToken, async (req, res) => {
 // =========================
 // ANALISIS (IA SIMULADA)
 // =========================
-app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRol(1), async (req, res) => {
+app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRoles([5]), async (req, res) => {
     const { id } = req.params;
     const { descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
 
@@ -357,7 +619,7 @@ app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRol(1), async 
     }
 });
 
-app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
+app.get('/api/grabaciones/analisis', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -386,7 +648,7 @@ app.get('/api/grabaciones/analisis', verificarToken, async (req, res) => {
 // =========================
 // DASHBOARD (BI)
 // =========================
-app.get('/api/tiendas/kpis', verificarToken, async (req, res) => {
+app.get('/api/tiendas/kpis', verificarToken, requerirRoles([1,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
 
     try {
@@ -404,7 +666,7 @@ app.get('/api/tiendas/kpis', verificarToken, async (req, res) => {
 });
 
 // /api/dashboard/metricas
-app.get('/api/reportes/estadisticas', verificarToken, async (req, res) => {
+app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([1,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
 
     try {
@@ -485,7 +747,7 @@ app.get('/api/reportes/estadisticas', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/reportes', verificarToken, async (req, res) => {
+app.get('/api/reportes', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -536,7 +798,7 @@ app.get('/api/reportes', verificarToken, async (req, res) => {
 // =========================
 // CATALOGOS
 // =========================
-app.get('/api/usuarios', verificarToken, async (req, res) => {
+app.get('/api/usuarios', verificarToken, requerirRoles([1,2]), async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT u.id, u.nombre, u.correo, r.nombre AS rol, t.nombre AS tienda, u.fecha_registro
@@ -553,7 +815,7 @@ app.get('/api/usuarios', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/tiendas', verificarToken, async (req, res) => {
+app.get('/api/tiendas', verificarToken, requerirRoles([1,4]), async (req, res) => {
     try {
         const [rows] = await pool.query("SELECT * FROM Tienda ORDER BY nombre ASC");
         res.json({ success: true, data: rows });
@@ -573,7 +835,7 @@ app.get('/api/riesgos', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/zonas', verificarToken, async (req, res) => {
+app.get('/api/zonas', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     const { id_tienda } = req.query;
 
     try {
@@ -599,7 +861,7 @@ app.get('/api/zonas', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/sensores', verificarToken, async (req, res) => {
+app.get('/api/sensores', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT s.*, z.nombre AS zona, es.nombre AS estado
@@ -616,7 +878,7 @@ app.get('/api/sensores', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/camaras', verificarToken, async (req, res) => {
+app.get('/api/camaras', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
     try {
         const [rows] = await pool.query(`
             SELECT c.*, z.nombre AS zona
