@@ -56,16 +56,16 @@ INSERT INTO Sensor (id, id_zona, id_estado, tipo, modelo) VALUES
   (4, 4, 3, 'VIBRACION', 'VIB-A7');
 
 INSERT INTO Usuario (id, nombre, correo, contrasena, id_rol, id_tienda) VALUES
-  (1, 'Admin Miraflores', 'admin@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 1, 1),
-  (2, 'Gerente Miraflores', 'gerente@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 2, 1),
-  (3, 'Operador Miraflores', 'operador@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 3, 1),
-  (4, 'Auditor Miraflores', 'auditor@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 4, 1),
-  (5, 'Servicio IA Miraflores', 'servicio@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 5, 1),
-  (6, 'Admin Los Olivos', 'admin.norte@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 1, 2),
-  (7, 'Gerente Los Olivos', 'gerente.norte@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 2, 2),
-  (8, 'Operador Los Olivos', 'operador.norte@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 3, 2),
-  (9, 'Auditor Los Olivos', 'auditor.norte@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 4, 2),
-  (10, 'Servicio IA Los Olivos', 'servicio.norte@security.local', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 5, 2);
+  (1, 'Admin Miraflores', 'admin@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 1, 1),
+  (2, 'Gerente Miraflores', 'gerente@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 2, 1),
+  (3, 'Operador Miraflores', 'operador@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 3, 1),
+  (4, 'Auditor Miraflores', 'auditor@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 4, 1),
+  (5, 'Servicio IA Miraflores', 'servicio@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 5, 1),
+  (6, 'Admin Los Olivos', 'admin.norte@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 1, 2),
+  (7, 'Gerente Los Olivos', 'gerente.norte@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 2, 2),
+  (8, 'Operador Los Olivos', 'operador.norte@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 3, 2),
+  (9, 'Auditor Los Olivos', 'auditor.norte@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 4, 2),
+  (10, 'Servicio IA Los Olivos', 'servicio.norte@security.com', '$2a$10$33yEVsFHA/xR.QfmsWzzUuudOZOa8JyxFMB1q9NTQYg8buldPCrPy', 5, 2);
 
 INSERT INTO EventoSensor (id, id_sensor, id_zona, tipo_evento, fecha, duracion_segundos) VALUES
   (1, 1, 1, 'MOVIMIENTO', NOW() - INTERVAL 2 HOUR, 12),
