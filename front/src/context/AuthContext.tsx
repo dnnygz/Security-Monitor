@@ -21,7 +21,10 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 function readSession(): StoredSession | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as StoredSession) : null;
+    if (!stored) return null;
+    const session = JSON.parse(stored) as StoredSession;
+    if (session.token) localStorage.setItem('token', session.token);
+    return session;
   } catch {
     localStorage.removeItem(STORAGE_KEY);
     return null;
@@ -43,6 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       },
       logout: () => {
         localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem('token');
         setSession(null);
       },
     }),

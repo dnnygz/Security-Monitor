@@ -30,7 +30,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -176,6 +177,10 @@ button {
 }
 
 .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
   min-height: 50px;
   color: white;
   font-weight: 800;
@@ -200,6 +205,12 @@ button {
   margin: 0;
   color: var(--danger);
   font-weight: 700;
+}
+
+.form-success {
+  margin: 14px 0 0;
+  color: #087358;
+  font-weight: 800;
 }
 
 .app-shell {
@@ -415,6 +426,35 @@ button {
 .card-heading {
   justify-content: space-between;
   margin-bottom: 18px;
+}
+
+.admin-user-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 14px;
+}
+
+.admin-user-form label {
+  display: grid;
+  gap: 8px;
+  color: #244f5d;
+  font-weight: 800;
+}
+
+.admin-user-form input,
+.admin-user-form select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: 0;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.admin-user-form button {
+  align-self: end;
 }
 
 .activity-list,
@@ -1294,6 +1334,7 @@ th {
   .video-review-card,
   .recording-detail-card,
   .report-grid,
+  .admin-user-form,
   .login-panel {
     grid-template-columns: 1fr;
   }

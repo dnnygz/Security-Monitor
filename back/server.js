@@ -7,6 +7,14 @@ const mysql = require('mysql2/promise');
 const app = express();
 app.use(express.json());
 
+const ROLES = {
+    ADMIN_GLOBAL: 1,
+    GERENTE_TIENDA: 2,
+    OPERADOR_SEGURIDAD: 3,
+    AUDITOR: 4,
+    SERVICIO_AUTO: 5
+};
+
 // =========================
 // DB CONNECTION (NO HARDCODE)
 // =========================
@@ -59,7 +67,19 @@ app.post('/api/auth/tokens', async (req, res) => {
 
     try {
         const [rows] = await pool.query(
-            "SELECT id, nombre, correo, contrasena, id_rol, id_tienda FROM Usuario WHERE correo = ?",
+            `SELECT 
+                u.id,
+                u.nombre,
+                u.correo,
+                u.contrasena,
+                u.id_rol,
+                u.id_tienda,
+                r.nombre AS rol,
+                t.nombre AS tienda
+            FROM Usuario u
+            JOIN Rol r ON u.id_rol = r.id
+            LEFT JOIN Tienda t ON u.id_tienda = t.id
+            WHERE u.correo = ?`,
             [correo]
         );
 
@@ -89,7 +109,12 @@ app.post('/api/auth/tokens', async (req, res) => {
             user: {
                 id: user.id,
                 nombre: user.nombre,
-                id_rol: user.id_rol
+                correo: user.correo,
+                id_rol: user.id_rol,
+                rol: user.rol,
+                rol_codigo: user.rol,
+                id_tienda: user.id_tienda,
+                tienda: user.tienda
             }
         });
 
@@ -138,6 +163,16 @@ const requerirRoles =  (rolesPermitidos) => {
     };
 };
 
+const requerirTiendaAsignada = (req, res, next) => {
+    if (!req.usuarioAutenticado.id_tienda) {
+        return res.status(403).json({
+            success: false,
+            message: 'Acceso denegado. Tu usuario no tiene una tienda asignada.'
+        });
+    }
+    next();
+};
+
 /**
  * ==========================================================================
  * ENDPOINT EXCLUSIVO PARA ADMINISTRADOR GLOBAL: CREACIÓN DE USUARIOS
@@ -145,8 +180,9 @@ const requerirRoles =  (rolesPermitidos) => {
  * Permite registrar cualquier tipo de usuario (Admin, Gerente, Operador, etc.)
  * y asignarlo a cualquier tienda (o dejarlo como NULL).
  */
-app.post('/api/admin/usuarios', verificarToken, requerirRoles([1]), async (req, res) => {
-    const { nombre, correo, contrasena, id_rol, id_tienda } = req.body;
+app.post('/api/admin/usuarios', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL]), requerirTiendaAsignada, async (req, res) => {
+    const { nombre, correo, contrasena, id_rol } = req.body;
+    const { id_tienda } = req.usuarioAutenticado;
 
     // Validación de campos obligatorios para el registro
     if (!nombre || !correo || !contrasena || !id_rol) {
@@ -216,10 +252,11 @@ app.post('/api/admin/usuarios', verificarToken, requerirRoles([1]), async (req, 
  * Endpoint Exclusivo para Administrador Global
  * Permite modificar absolutamente todos los campos de cualquier usuario
  */
-app.put('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (req, res) => {
+app.put('/api/admin/usuarios/:id', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     // El administrador SI puede cambiar el rol y la tienda asignada
-    const { nombre, correo, contrasena, id_rol, id_tienda } = req.body; 
+    const { nombre, correo, contrasena, id_rol } = req.body; 
+    const { id_tienda } = req.usuarioAutenticado;
 
     if (!nombre || !correo || !id_rol) {
         return res.status(400).json({ success: false, message: 'Campos obligatorios faltantes.' });
@@ -242,16 +279,16 @@ app.put('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (re
             queryUpdate = `
                 UPDATE Usuario 
                 SET nombre = ?, correo = ?, contrasena = ?, id_rol = ?, id_tienda = ? 
-                WHERE id = ?
+                WHERE id = ? AND id_tienda = ?
             `;
-            queryParams = [nombre, correo, contrasenaHasheada, id_rol, id_tienda || null, id];
+            queryParams = [nombre, correo, contrasenaHasheada, id_rol, id_tienda, id, id_tienda];
         } else {
             queryUpdate = `
                 UPDATE Usuario 
                 SET nombre = ?, correo = ?, id_rol = ?, id_tienda = ? 
-                WHERE id = ?
+                WHERE id = ? AND id_tienda = ?
             `;
-            queryParams = [nombre, correo, id_rol, id_tienda || null, id];
+            queryParams = [nombre, correo, id_rol, id_tienda, id, id_tienda];
         }
 
         const [resultado] = await pool.query(queryUpdate, queryParams);
@@ -265,9 +302,10 @@ app.put('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (re
     }
 });
 
-app.delete('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async (req, res) => {
+app.delete('/api/admin/usuarios/:id', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     const { id_usuario: adminId } = req.usuarioAutenticado; // ID del admin que inició sesión
+    const { id_tienda } = req.usuarioAutenticado;
 
     // Candado de Seguridad: Evitar que el administrador se elimine a sí mismo por error
     if (parseInt(id) === parseInt(adminId)) {
@@ -279,7 +317,7 @@ app.delete('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async 
 
     try {
         // Ejecutar la eliminación directa en la base de datos
-        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ?', [id]);
+        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ? AND id_tienda = ?', [id, id_tienda]);
 
         // Si no se afectó ninguna fila, significa que el ID no existía
         if (resultado.affectedRows === 0) {
@@ -303,17 +341,9 @@ app.delete('/api/admin/usuarios/:id', verificarToken, requerirRoles([1]), async 
     }
 });
 
-app.post('/api/usuarios/empleados', verificarToken, requerirRoles([2]), async (req, res) => {
+app.post('/api/usuarios/empleados', verificarToken, requerirRoles([ROLES.GERENTE_TIENDA]), requerirTiendaAsignada, async (req, res) => {
 
-    // requisitos del token del usuario (debe tener rol admin)
-    const { id_rol: rolAdmin, id_tienda: tiendaAdmin } = req.usuarioAutenticado;
-
-    if (parseInt(rolAdmin) !== 1) {
-        return res.status(403).json({ 
-            success: false, 
-            message: 'Acceso denegado. Solo los administradores pueden registrar usuarios.' 
-        });
-    }
+    const { id_tienda: tiendaAdmin } = req.usuarioAutenticado;
     // requisitos para crear la cuenta (nombre, correo y contraseña)
     const { nombre, correo, contrasena } = req.body;
 
@@ -336,7 +366,7 @@ app.post('/api/usuarios/empleados', verificarToken, requerirRoles([2]), async (r
         const salt = await bcrypt.genSalt(10);
         const contrasenaHasheada = await bcrypt.hash(contrasena, salt);
 
-        const ID_ROL_USUARIO = 2; // id del rol de usuario corriente
+        const ID_ROL_USUARIO = ROLES.OPERADOR_SEGURIDAD;
 
         const queryInsert = `
             INSERT INTO Usuario (nombre, correo, contrasena, id_rol, id_tienda) 
@@ -363,7 +393,7 @@ app.post('/api/usuarios/empleados', verificarToken, requerirRoles([2]), async (r
     }
 });
 
-app.put('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async (req, res) => {
+app.put('/api/usuarios/empleados/:id', verificarToken, requerirRoles([ROLES.GERENTE_TIENDA]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     // 1. Eliminamos 'id_rol' de req.body para que NINGÚN usuario pueda enviarlo ni alterarlo
     const { nombre, correo, contrasena } = req.body; 
@@ -403,17 +433,17 @@ app.put('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async
             queryUpdate = `
                 UPDATE Usuario 
                 SET nombre = ?, correo = ?, contrasena = ?, id_tienda = ?
-                WHERE id = ?
+                WHERE id = ? AND id_tienda = ?
             `;
-            queryParams = [nombre, correo, contrasenaHasheada, tiendaAdmin || null, id];
+            queryParams = [nombre, correo, contrasenaHasheada, tiendaAdmin, id, tiendaAdmin];
         } else {
             // 3. Quitamos 'id_rol = ?' también de la sentencia sin contraseña
             queryUpdate = `
                 UPDATE Usuario 
                 SET nombre = ?, correo = ?, id_tienda = ?
-                WHERE id = ?
+                WHERE id = ? AND id_tienda = ?
             `;
-            queryParams = [nombre, correo, tiendaAdmin || null, id];
+            queryParams = [nombre, correo, tiendaAdmin, id, tiendaAdmin];
         }
 
         const [resultado] = await pool.query(queryUpdate, queryParams);
@@ -431,9 +461,10 @@ app.put('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async
     }
 });
 
-app.delete('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), async (req, res) => {
+app.delete('/api/usuarios/empleados/:id', verificarToken, requerirRoles([ROLES.GERENTE_TIENDA]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     const { id_usuario: adminId } = req.usuarioAutenticado;
+    const { id_tienda } = req.usuarioAutenticado;
 
     // Evitar que el administrador se elimine a sí mismo por error
     if (parseInt(id) === parseInt(adminId)) {
@@ -444,7 +475,7 @@ app.delete('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), as
     }
 
     try {
-        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ?', [id]);
+        const [resultado] = await pool.query('DELETE FROM Usuario WHERE id = ? AND id_tienda = ?', [id, id_tienda]);
 
         if (resultado.affectedRows === 0) {
             return res.status(404).json({ success: false, message: 'Usuario no encontrado.' });
@@ -464,15 +495,28 @@ app.delete('/api/usuarios/empleados/:id', verificarToken, requerirRoles([2]), as
 // =========================
 // EVENT CORE (CEREBRO)
 // =========================
-app.post('/api/sensores/:id/eventos', verificarToken, requerirRoles([5]), async (req, res) => {
+app.post('/api/sensores/:id/eventos', verificarToken, requerirRoles([ROLES.SERVICIO_AUTO]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     const {id_zona, tipo_evento, fecha, duracion_segundos } = req.body;
+    const { id_tienda } = req.usuarioAutenticado;
 
     if (!id || !id_zona || !tipo_evento || !fecha) {
         return res.status(400).json({ success: false, message: "Faltan datos" });
     }
 
     try {
+        const [sensorRows] = await pool.query(
+            `SELECT s.id 
+             FROM Sensor s
+             JOIN Zona z ON s.id_zona = z.id
+             WHERE s.id = ? AND z.id = ? AND z.id_tienda = ?`,
+            [id, id_zona, id_tienda]
+        );
+
+        if (sensorRows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Sensor o zona fuera de tu tienda asignada.' });
+        }
+
         // 1. guardar evento
         const [ev] = await pool.query(
             `INSERT INTO EventoSensor (id_sensor, id_zona, tipo_evento, fecha, duracion_segundos)
@@ -518,7 +562,7 @@ app.post('/api/sensores/:id/eventos', verificarToken, requerirRoles([5]), async 
     }
 });
 
-app.get('/api/eventos-sensores', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/eventos-sensores', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -535,9 +579,9 @@ app.get('/api/eventos-sensores', verificarToken, requerirRoles([1,2,3,4]), async
             FROM EventoSensor ev
             JOIN Sensor s ON ev.id_sensor = s.id
             JOIN Zona z ON ev.id_zona = z.id
-	    WHERE (? IS NULL OR z.id_tienda = ?)
+	    WHERE z.id_tienda = ?
             ORDER BY ev.fecha DESC
-        `, [id_tienda, id_tienda]);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -549,7 +593,7 @@ app.get('/api/eventos-sensores', verificarToken, requerirRoles([1,2,3,4]), async
 // =========================
 // GRABACIONES (EVIDENCIA)
 // =========================
-app.get('/api/grabaciones', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/grabaciones', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -557,9 +601,9 @@ app.get('/api/grabaciones', verificarToken, requerirRoles([1,2,3,4]), async (req
             FROM Grabacion g
             JOIN Camara c ON g.id_camara = c.id
             JOIN Zona z ON c.id_zona = z.id
-	    WHERE (? IS NULL OR z.id_tienda = ?)
+	    WHERE z.id_tienda = ?
             ORDER BY g.fecha DESC
-        `, [id_tienda, id_tienda]);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -568,9 +612,10 @@ app.get('/api/grabaciones', verificarToken, requerirRoles([1,2,3,4]), async (req
     }
 });
 
-app.patch('/api/grabaciones/:id', verificarToken,requerirRoles([1,2,3]),  async (req, res) => {
+app.patch('/api/grabaciones/:id', verificarToken,requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD]), requerirTiendaAsignada,  async (req, res) => {
     const { id } = req.params;
     const { estado_revision } = req.body;
+    const { id_tienda } = req.usuarioAutenticado;
     const estadosPermitidos = ['PENDIENTE', 'REVISADO', 'DESCARTADO'];
 
     if (!estado_revision || !estadosPermitidos.includes(estado_revision)) {
@@ -582,8 +627,12 @@ app.patch('/api/grabaciones/:id', verificarToken,requerirRoles([1,2,3]),  async 
 
     try {
         const [result] = await pool.query(
-            "UPDATE Grabacion SET estado_revision = ? WHERE id = ?",
-            [estado_revision, id]
+            `UPDATE Grabacion g
+             JOIN Camara c ON g.id_camara = c.id
+             JOIN Zona z ON c.id_zona = z.id
+             SET g.estado_revision = ?
+             WHERE g.id = ? AND z.id_tienda = ?`,
+            [estado_revision, id, id_tienda]
         );
 
         if (result.affectedRows === 0) {
@@ -600,11 +649,25 @@ app.patch('/api/grabaciones/:id', verificarToken,requerirRoles([1,2,3]),  async 
 // =========================
 // ANALISIS (IA SIMULADA)
 // =========================
-app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRoles([5]), async (req, res) => {
+app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRoles([ROLES.SERVICIO_AUTO]), requerirTiendaAsignada, async (req, res) => {
     const { id } = req.params;
     const { descripcion, genero, edad, comportamiento, nivel_confianza } = req.body;
+    const { id_tienda } = req.usuarioAutenticado;
 
     try {
+        const [recordingRows] = await pool.query(
+            `SELECT g.id
+             FROM Grabacion g
+             JOIN Camara c ON g.id_camara = c.id
+             JOIN Zona z ON c.id_zona = z.id
+             WHERE g.id = ? AND z.id_tienda = ?`,
+            [id, id_tienda]
+        );
+
+        if (recordingRows.length === 0) {
+            return res.status(403).json({ success: false, message: 'Grabación fuera de tu tienda asignada.' });
+        }
+
         const [r] = await pool.query(
             `INSERT INTO GrabacionAnalisis
             (id_grabacion, descripcion, genero, edad, comportamiento, nivel_confianza)
@@ -619,7 +682,7 @@ app.post('/api/grabaciones/:id/analisis', verificarToken, requerirRoles([5]), as
     }
 });
 
-app.get('/api/grabaciones/analisis', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/grabaciones/analisis', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -648,7 +711,7 @@ app.get('/api/grabaciones/analisis', verificarToken, requerirRoles([1,2,3,4]), a
 // =========================
 // DASHBOARD (BI)
 // =========================
-app.get('/api/tiendas/kpis', verificarToken, requerirRoles([1,4]), async (req, res) => {
+app.get('/api/tiendas/kpis', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
 
     try {
@@ -666,13 +729,10 @@ app.get('/api/tiendas/kpis', verificarToken, requerirRoles([1,4]), async (req, r
 });
 
 // /api/dashboard/metricas
-app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([1,4]), async (req, res) => {
+app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
 
     try {
-        const reporteFiltro = id_tienda ? 'WHERE id_tienda = ?' : '';
-        const tiendaParams = id_tienda ? [id_tienda] : [];
-
         const [
             [kpis],
             [tendencia],
@@ -682,33 +742,33 @@ app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([1,4]), asyn
         ] = await Promise.all([
             pool.query(`
                 SELECT 
-                    (SELECT COUNT(*) FROM Reporte ${reporteFiltro}) AS total_reportes,
-                    (SELECT COUNT(*) FROM EvaluacionRiesgo WHERE genera_alerta = TRUE) AS alertas_criticas,
-                    (SELECT COUNT(*) FROM Sensor WHERE id_estado = 1) AS sensores_activos,
-                    (SELECT IFNULL(AVG(duracion_segundos), 0) FROM Reporte ${reporteFiltro}) AS tiempo_promedio_resolucion
-            `, [...tiendaParams, ...tiendaParams]),
+                    (SELECT COUNT(*) FROM Reporte WHERE id_tienda = ?) AS total_reportes,
+                    (SELECT COUNT(*) FROM EvaluacionRiesgo er JOIN EventoSensor ev ON er.id_evento = ev.id JOIN Zona z ON ev.id_zona = z.id WHERE z.id_tienda = ? AND er.genera_alerta = TRUE) AS alertas_criticas,
+                    (SELECT COUNT(*) FROM Sensor s JOIN Zona z ON s.id_zona = z.id WHERE z.id_tienda = ? AND s.id_estado = 1) AS sensores_activos,
+                    (SELECT IFNULL(AVG(duracion_segundos), 0) FROM Reporte WHERE id_tienda = ?) AS tiempo_promedio_resolucion
+            `, [id_tienda, id_tienda, id_tienda, id_tienda]),
             pool.query(`
                 SELECT DATE(fecha) AS dia, COUNT(*) AS total
                 FROM Reporte
-                ${id_tienda ? 'WHERE id_tienda = ? AND' : 'WHERE'} fecha >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+                WHERE id_tienda = ? AND fecha >= DATE_SUB(NOW(), INTERVAL 30 DAY)
                 GROUP BY DATE(fecha)
                 ORDER BY dia ASC
-            `, tiendaParams),
+            `, [id_tienda]),
             pool.query(`
                 SELECT HOUR(fecha) AS hora, COUNT(*) AS total_incidentes
                 FROM Reporte
-                ${reporteFiltro}
+                WHERE id_tienda = ?
                 GROUP BY HOUR(fecha)
                 ORDER BY hora ASC
-            `, tiendaParams),
+            `, [id_tienda]),
             pool.query(`
                 SELECT z.nombre AS zona, COUNT(rep.id) AS total_incidentes
                 FROM Reporte rep
                 JOIN Zona z ON rep.id_zona = z.id
-                ${id_tienda ? 'WHERE rep.id_tienda = ?' : ''}
+                WHERE rep.id_tienda = ?
                 GROUP BY rep.id_zona, z.nombre
                 ORDER BY total_incidentes DESC
-            `, tiendaParams),
+            `, [id_tienda]),
             pool.query(`
                 SELECT 
                     rep.id,
@@ -724,15 +784,15 @@ app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([1,4]), asyn
                 JOIN Riesgo r ON rep.id_riesgo = r.id
                 LEFT JOIN Grabacion g ON g.id_reporte = rep.id
                 LEFT JOIN GrabacionAnalisis ga ON ga.id_grabacion = g.id
-                ${id_tienda ? 'WHERE rep.id_tienda = ?' : ''}
+                WHERE rep.id_tienda = ?
                 ORDER BY rep.fecha DESC
                 LIMIT 6
-            `, tiendaParams)
+            `, [id_tienda])
         ]);
 
         res.json({
             success: true,
-            filtrado_por_tienda: id_tienda || 'TODAS',
+            filtrado_por_tienda: id_tienda,
             data: {
                 kpis: kpis[0],
                 grafico_tendencia: tendencia,
@@ -747,7 +807,7 @@ app.get('/api/reportes/estadisticas', verificarToken, requerirRoles([1,4]), asyn
     }
 });
 
-app.get('/api/reportes', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/reportes', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
     const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
@@ -784,9 +844,9 @@ app.get('/api/reportes', verificarToken, requerirRoles([1,2,3,4]), async (req, r
             LEFT JOIN Grabacion g ON g.id_reporte = rep.id
             LEFT JOIN Camara c ON g.id_camara = c.id
             LEFT JOIN GrabacionAnalisis ga ON ga.id_grabacion = g.id
-            WHERE (? IS NULL OR z.id_tienda = ?)
+            WHERE z.id_tienda = ?
 	    ORDER BY rep.fecha DESC
-        `, [id_tienda, id_tienda]);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -798,15 +858,17 @@ app.get('/api/reportes', verificarToken, requerirRoles([1,2,3,4]), async (req, r
 // =========================
 // CATALOGOS
 // =========================
-app.get('/api/usuarios', verificarToken, requerirRoles([1,2]), async (req, res) => {
+app.get('/api/usuarios', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA]), requerirTiendaAsignada, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
-            SELECT u.id, u.nombre, u.correo, r.nombre AS rol, t.nombre AS tienda, u.fecha_registro
+            SELECT u.id, u.nombre, u.correo, u.id_rol, r.nombre AS rol, u.id_tienda, t.nombre AS tienda, u.fecha_registro
             FROM Usuario u
             JOIN Rol r ON u.id_rol = r.id
             LEFT JOIN Tienda t ON u.id_tienda = t.id
+            WHERE u.id_tienda = ?
             ORDER BY u.fecha_registro DESC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -815,9 +877,20 @@ app.get('/api/usuarios', verificarToken, requerirRoles([1,2]), async (req, res) 
     }
 });
 
-app.get('/api/tiendas', verificarToken, requerirRoles([1,4]), async (req, res) => {
+app.get('/api/roles', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA]), async (req, res) => {
     try {
-        const [rows] = await pool.query("SELECT * FROM Tienda ORDER BY nombre ASC");
+        const [rows] = await pool.query("SELECT * FROM Rol ORDER BY id ASC");
+        res.json({ success: true, data: rows });
+
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/tiendas', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
+    try {
+        const [rows] = await pool.query("SELECT * FROM Tienda WHERE id = ? ORDER BY nombre ASC", [id_tienda]);
         res.json({ success: true, data: rows });
 
     } catch (err) {
@@ -835,25 +908,17 @@ app.get('/api/riesgos', verificarToken, async (req, res) => {
     }
 });
 
-app.get('/api/zonas', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
-    const { id_tienda } = req.query;
+app.get('/api/zonas', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
 
     try {
-        const params = [];
-        let query = `
+        const [rows] = await pool.query(`
             SELECT z.*, t.nombre AS tienda
             FROM Zona z
             JOIN Tienda t ON z.id_tienda = t.id
-        `;
-
-        if (id_tienda) {
-            query += " WHERE z.id_tienda = ?";
-            params.push(id_tienda);
-        }
-
-        query += " ORDER BY z.nombre ASC";
-
-        const [rows] = await pool.query(query, params);
+            WHERE z.id_tienda = ?
+            ORDER BY z.nombre ASC
+        `, [id_tienda]);
         res.json({ success: true, data: rows });
 
     } catch (err) {
@@ -861,15 +926,17 @@ app.get('/api/zonas', verificarToken, requerirRoles([1,2,3,4]), async (req, res)
     }
 });
 
-app.get('/api/sensores', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/sensores', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT s.*, z.nombre AS zona, es.nombre AS estado
             FROM Sensor s
             JOIN Zona z ON s.id_zona = z.id
             JOIN EstadoSensor es ON s.id_estado = es.id
+            WHERE z.id_tienda = ?
             ORDER BY z.nombre ASC, s.modelo ASC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 
@@ -878,14 +945,16 @@ app.get('/api/sensores', verificarToken, requerirRoles([1,2,3,4]), async (req, r
     }
 });
 
-app.get('/api/camaras', verificarToken, requerirRoles([1,2,3,4]), async (req, res) => {
+app.get('/api/camaras', verificarToken, requerirRoles([ROLES.ADMIN_GLOBAL, ROLES.GERENTE_TIENDA, ROLES.OPERADOR_SEGURIDAD, ROLES.AUDITOR]), requerirTiendaAsignada, async (req, res) => {
+    const { id_tienda } = req.usuarioAutenticado;
     try {
         const [rows] = await pool.query(`
             SELECT c.*, z.nombre AS zona
             FROM Camara c
             JOIN Zona z ON c.id_zona = z.id
+            WHERE z.id_tienda = ?
             ORDER BY z.nombre ASC, c.modelo ASC
-        `);
+        `, [id_tienda]);
 
         res.json({ success: true, data: rows });
 

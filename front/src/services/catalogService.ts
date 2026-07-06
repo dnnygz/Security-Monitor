@@ -3,6 +3,7 @@ import type { CatalogItem } from '../types';
 
 const catalogEndpoints = [
   { key: 'usuarios', label: 'Usuarios', path: '/api/usuarios' },
+  { key: 'roles', label: 'Roles', path: '/api/roles' },
   { key: 'sensores', label: 'Sensores', path: '/api/sensores' },
   { key: 'camaras', label: 'Cámaras', path: '/api/camaras' },
   { key: 'zonas', label: 'Zonas', path: '/api/zonas' },

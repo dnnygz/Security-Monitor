@@ -3,6 +3,10 @@ export type User = {
   nombre: string;
   correo?: string;
   id_rol?: number | string;
+  rol?: string;
+  rol_codigo?: string;
+  id_tienda?: number | string | null;
+  tienda?: string | null;
 };
 
 export type DashboardKpis = {
